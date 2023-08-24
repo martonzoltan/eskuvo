@@ -1,5 +1,4 @@
 <template>
-
 	<div class="container">
 		<div class="row">
 			<div class="mt-4">
@@ -52,10 +51,7 @@
 							</a>
 						</template>
 						<template v-else-if="isVideo(image)">
-							<video
-								controls
-								poster="@/assets/fedolap.jpeg"
-							>
+							<video controls poster="@/assets/fedolap.jpeg">
 								<source :src="image" />
 								Your browser does not support the video tag.
 							</video>
@@ -94,6 +90,9 @@ export default {
 			connectionSAS: process.env.VUE_APP_CONNECTION_SAS,
 			containerName: "images",
 			loading: false,
+			currentPage: 0,
+			hasMoreImages: true,
+			lightboxInitialized: false,
 		};
 	},
 	computed: {
@@ -111,13 +110,35 @@ export default {
 			this.isAdmin = true;
 		}
 		this.loading = true;
+		window.addEventListener("scroll", this.handleScroll);
 		await this.fetchImages();
 		this.lightbox = new SimpleLightbox(".grid-container a");
+		this.lightboxInitialized = true;
 		this.loading = false;
 	},
+
+	beforeUnmount() {
+		window.removeEventListener("scroll", this.handleScroll);
+	},
 	methods: {
-		async fetchImages() {
+		async handleScroll() {
+			const distanceToBottom =
+				document.documentElement.scrollHeight -
+				(window.innerHeight + window.scrollY);
+
+			const threshold = 5;
+			if (distanceToBottom < threshold) {
+				this.loading = true;
+				await this.fetchImages();
+				this.loading = false;
+			}
+		},
+		async fetchImages(firstPage = false, pageSize = 10) {
 			try {
+				if (!this.hasMoreImages) {
+					return;
+				}
+
 				const blobServiceClient = new BlobServiceClient(this.connectionSAS);
 				const containerClient = blobServiceClient.getContainerClient(
 					this.containerName
@@ -138,9 +159,28 @@ export default {
 						b.properties.createdOn.valueOf() - a.properties.createdOn.valueOf()
 				);
 
-				this.images = sortedBlobs.map(
-					(blob) => containerClient.getBlobClient(blob.name).url
+				const startIndex = (firstPage ? 0 : this.currentPage) * pageSize;
+				const endIndex = startIndex + pageSize;
+
+				this.images = this.images.concat(
+					sortedBlobs
+						.slice(startIndex, endIndex)
+						.map((blob) => containerClient.getBlobClient(blob.name).url)
 				);
+
+				if (!firstPage) {
+					this.currentPage++;
+				}
+
+				await this.sleep(1000);
+				if (this.lightboxInitialized) {
+					this.lightbox.destroy();
+					this.lightbox = new SimpleLightbox(".grid-container a");
+				}
+
+				if (endIndex >= sortedBlobs.length) {
+					this.hasMoreImages = false; // All images fetched
+				}
 			} catch (error) {
 				console.error("Error retrieving images:", error);
 			}
@@ -173,7 +213,7 @@ export default {
 
 				this.selectedFiles = [];
 				console.log("Files uploaded successfully!");
-				await this.fetchImages();
+				await this.fetchImages(true);
 			} catch (error) {
 				console.error("Error uploading files:", error);
 			}
@@ -234,6 +274,9 @@ export default {
 		getImageBlobName(imageUrl) {
 			const segments = imageUrl.split("/");
 			return segments[segments.length - 1];
+		},
+		sleep(ms) {
+			return new Promise((resolve) => setTimeout(resolve, ms));
 		},
 	},
 };
