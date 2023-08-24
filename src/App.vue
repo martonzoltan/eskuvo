@@ -79,6 +79,7 @@
 import { BlobServiceClient } from "@azure/storage-blob";
 import SimpleLightbox from "simplelightbox";
 
+
 export default {
 	data() {
 		return {
